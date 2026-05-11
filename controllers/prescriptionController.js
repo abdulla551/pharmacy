@@ -1,5 +1,8 @@
 const multer = require('multer');
 const Prescription = require('../models/prescriptionModel');
+const ContractedPharmacy = require('../models/contractedPharmacyModel');
+const Notification = require('../models/notificationModel');
+const AppError = require('../utils/appError');
 
 const multerStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -15,7 +18,7 @@ const multerFilter = (req, file, cb) => {
   if (file.mimetype.startsWith('image')) {
     cb(null, true);
   } else {
-    cb(new Error('Not an image! Please upload only images.'), false);
+    cb(new AppError('هذا الملف ليس صورة! من فضلك قم برفع صور فقط.', 400), false);
   }
 };
 
@@ -29,16 +32,28 @@ exports.uploadPrescriptionImage = upload.single('prescription_image');
 exports.createPrescription = async (req, res, next) => {
   try {
     if (!req.file) {
-      return res.status(400).json({
-        status: 'fail',
-        message: 'Please upload an image'
-      });
+      return next(new AppError('من فضلك قم برفع صورة الروشتة', 400));
     }
 
     const newPrescription = await Prescription.create({
       prescription_image: req.file.filename,
       user: req.user.id
     });
+
+
+    const pharmacies = await ContractedPharmacy.find();
+
+
+    const notificationPromises = pharmacies.map(pharmacy => {
+      return Notification.create({
+        pharmacy: pharmacy._id,
+        user: req.user.id,
+        prescription: newPrescription._id,
+        message: `روشتة جديدة تم رفعها بواسطة ${req.user.name}`
+      });
+    });
+
+    await Promise.all(notificationPromises);
 
     res.status(201).json({
       status: 'success',
@@ -47,9 +62,6 @@ exports.createPrescription = async (req, res, next) => {
       }
     });
   } catch (err) {
-    res.status(400).json({
-      status: 'fail',
-      message: err.message
-    });
+    next(err);
   }
 };

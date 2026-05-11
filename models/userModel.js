@@ -5,25 +5,39 @@ const bcrypt = require('bcryptjs');
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: [true, 'Please tell us your name!']
+    required: [true, 'اسم المستخدم مطلوب'],
+    minlength: [3, 'اسم المستخدم يجب أن يكون 3 أحرف على الأقل'],
+    maxlength: [50, 'اسم المستخدم يجب ألا يزيد عن 50 حرف']
   },
   email: {
     type: String,
-    required: [true, 'Please provide your email'],
     unique: true,
     lowercase: true,
-    validate: [validator.isEmail, 'Please provide a valid email']
+    validate: [validator.isEmail, 'من فضلك أدخل بريد إلكتروني صالح'],
+    sparse: true
+  },
+  phone: {
+    type: String,
+    unique: true,
+    sparse: true
   },
   password: {
     type: String,
-    required: [true, 'Please provide a password'],
-    minlength: 8,
+    required: [true, 'كلمة المرور مطلوبة'],
+    minlength: [8, 'كلمة المرور يجب أن تكون 8 أحرف على الأقل'],
     select: false
   },
   role: {
     type: String,
-    enum: ['user', 'admin'],
+    enum: {
+      values: ['user', 'admin', 'super-admin'],
+      message: 'الصلاحية غير صالحة'
+    },
     default: 'user'
+  },
+  location: {
+    lat: Number,
+    lng: Number
   }
 });
 

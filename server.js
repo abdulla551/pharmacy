@@ -5,20 +5,29 @@ require("dotenv").config({path: "./config.env"});
 
 const userRouter = require('./routes/userRoutes');
 const prescriptionRouter = require('./routes/prescriptionRoutes');
+const pharmacyRouter = require('./routes/contractedPharmacyRoutes');
+const globalError = require('./middlewares/globalError');
+const AppError = require('./utils/appError');
 
 const app = express();
 
-// Body parser, reading data from body into req.body
 app.use(express.json());
 
-// Serving static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 dbConnection();
 
-// Routes
 app.use('/api/v1/users', userRouter);
 app.use('/api/v1/prescriptions', prescriptionRouter);
+app.use('/api/v1/pharmacies', pharmacyRouter);
+app.use('/api/v1/notifications', require('./routes/notificationRoutes'));
+app.use('/api/v1/location', require('./routes/locationRoutes'));
+
+app.use((req, res, next) => {
+  next(new AppError(`لا يمكن العثور على هذا المسار ${req.originalUrl} على هذا الخادم!`, 404));
+});
+
+app.use(globalError);
 
 app.get("/", (req, res) => {
   res.send("Hello node JS");

@@ -1,5 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/userModel');
+const ContractedPharmacy = require('../models/contractedPharmacyModel');
+const AppError = require('../utils/appError');
 
 const signToken = id => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -9,10 +11,7 @@ const signToken = id => {
 
 const createSendToken = (user, statusCode, res) => {
   const token = signToken(user._id);
-
-  // Remove password from output
   user.password = undefined;
-
   res.status(statusCode).json({
     status: 'success',
     token,
@@ -27,52 +26,35 @@ exports.signup = async (req, res, next) => {
     const newUser = await User.create({
       name: req.body.name,
       email: req.body.email,
-      password: req.body.password
+      password: req.body.password,
+      phone: req.body.phone
     });
-
     createSendToken(newUser, 201, res);
   } catch (err) {
-    res.status(400).json({
-      status: 'fail',
-      message: err.message
-    });
+    next(err);
   }
 };
 
 exports.login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-
-    // 1) Check if email and password exist
-    if (!email || !password) {
-      return res.status(400).json({
-        status: 'fail',
-        message: 'Please provide email and password!'
-      });
+    const { email, phone, password } = req.body;
+    if ((!email && !phone) || !password) {
+      return next(new AppError('من فضلك أدخل البريد الإلكتروني/رقم الهاتف وكلمة المرور', 400));
     }
-    // 2) Check if user exists && password is correct
-    const user = await User.findOne({ email }).select('+password');
-
+    const user = await User.findOne({ 
+      $or: [{ email: email || '___' }, { phone: phone || '___' }] 
+    }).select('+password');
     if (!user || !(await user.correctPassword(password, user.password))) {
-      return res.status(401).json({
-        status: 'fail',
-        message: 'Incorrect email or password'
-      });
+      return next(new AppError('البيانات غير صحيحة', 401));
     }
-
-    // 3) If everything ok, send token to client
     createSendToken(user, 200, res);
   } catch (err) {
-    res.status(400).json({
-      status: 'fail',
-      message: err.message
-    });
+    next(err);
   }
 };
 
 exports.protect = async (req, res, next) => {
   try {
-    // 1) Getting token and check of it's there
     let token;
     if (
       req.headers.authorization &&
@@ -80,33 +62,80 @@ exports.protect = async (req, res, next) => {
     ) {
       token = req.headers.authorization.split(' ')[1];
     }
-
     if (!token) {
-      return res.status(401).json({
-        status: 'fail',
-        message: 'You are not logged in! Please log in to get access.'
-      });
+      return next(new AppError('أنت غير مسجل، من فضلك سجل الدخول للوصول لهذه الصفحة', 401));
     }
-
-    // 2) Verification token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // 3) Check if user still exists
-    const currentUser = await User.findById(decoded.id);
+    let currentUser = await User.findById(decoded.id);
     if (!currentUser) {
-      return res.status(401).json({
-        status: 'fail',
-        message: 'The user belonging to this token does no longer exist.'
-      });
+      currentUser = await ContractedPharmacy.findById(decoded.id);
     }
-
-    // GRANT ACCESS TO PROTECTED ROUTE
+    if (!currentUser) {
+      return next(new AppError('المستخدم أو الصيدلية صاحب هذا التوكن لم يعد موجوداً', 401));
+    }
     req.user = currentUser;
     next();
   } catch (err) {
-    res.status(401).json({
-      status: 'fail',
-      message: 'Invalid token or session expired'
+    next(err);
+  }
+};
+
+exports.restrictTo = (...roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return next(new AppError('ليس لديك صلاحية للقيام بهذا الإجراء', 403));
+    }
+    next();
+  };
+};
+
+exports.createAdmin = async (req, res, next) => {
+  try {
+    const newAdmin = await User.create({
+      name: req.body.name,
+      phone: req.body.phone,
+      password: req.body.password,
+      role: 'admin'
     });
+    res.status(201).json({
+      status: 'success',
+      data: {
+        user: newAdmin
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.superAdminLogin = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return next(new AppError('من فضلك أدخل البريد الإلكتروني وكلمة المرور', 400));
+    }
+    const user = await User.findOne({ email, role: 'super-admin' }).select('+password');
+    if (!user || !(await user.correctPassword(password, user.password))) {
+      return next(new AppError('البيانات غير صحيحة، أو أنك لست Super Admin', 401));
+    }
+    createSendToken(user, 200, res);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.pharmacyLogin = async (req, res, next) => {
+  try {
+    const { phone, password } = req.body;
+    if (!phone || !password) {
+      return next(new AppError('من فضلك أدخل رقم الهاتف وكلمة المرور الخاصة بالصيدلية', 400));
+    }
+    const pharmacy = await ContractedPharmacy.findOne({ phone }).select('+password');
+    if (!pharmacy || !(await pharmacy.correctPassword(password, pharmacy.password))) {
+      return next(new AppError('بيانات الدخول غير صحيحة', 401));
+    }
+    createSendToken(pharmacy, 200, res);
+  } catch (err) {
+    next(err);
   }
 };
